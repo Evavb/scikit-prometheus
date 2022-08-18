@@ -8,12 +8,23 @@ from skprometheus.metrics import MetricRegistry
 from skprometheus.utils import get_feature_names
 
 
+
 class BaggingClassifier(ensemble.BaggingClassifier):
     @wraps(ensemble.BaggingClassifier.__init__, assigned=["__signature__"])
     def __init__(self, buckets, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.buckets = buckets
-        MetricRegistry.add_histogram("classification", "???", buckets=buckets, additional_labels=("method", "class_name"))
+        MetricRegistry.add_histogram("classification", "model agreement percentage", buckets=buckets, additional_labels=("method", "class_name"))
+
+    def register_proba(self, method: str, predicted_probabilitiy):
+        """Register probability in the MetricRegistry per class.
+
+        Args:
+            method (str): Method name
+            predicted_probabilitiy: Predicted probability from predict_proba
+        """
+        for name, prob in zip(predicted_probabilitiy.argmax(axis=1), predicted_probabilitiy.max(axis=1)):
+                MetricRegistry.classification(method=method, class_name=name).observe(prob)
 
     def predict(self, X):
         """Predict class for X.
@@ -31,8 +42,7 @@ class BaggingClassifier(ensemble.BaggingClassifier):
             The predicted classes.
         """
         predicted_probabilitiy = self.predict_proba(X)
-                
-        for name, prob in zip(predicted_probabilitiy.argmax(axis=1), predicted_probabilitiy.max(axis=1)):
-            MetricRegistry.classification(method="BaggingClassifier", class_name=name).observe(prob)
         
+        self.register_proba("BaggingClassifier", predicted_probabilitiy)
+                
         return self.classes_.take((np.argmax(predicted_probabilitiy, axis=1)), axis=0)
